@@ -69,6 +69,8 @@ class RRT {
 
         int nearest(const std::array<int,2>& pos) const;
         std::vector<int> radiusnear(const std::array<int,2>& pos, double radius) const;
+        int extend_tree(const std::array<int,2>& target_pos, int fallback_parent);
+        void smoothing(int goal_index_node, int iterations);
 
         int find_min_cost(std::vector<int> X_near, std::array<int,2> pos);
         std::optional<std::array<int,2>> steer(RRTNode& node, std::array<int,2>& pos_des);

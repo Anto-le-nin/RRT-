@@ -48,6 +48,47 @@ std::vector<int> RRT::radiusnear(const std::array<int,2>& pos, double radius) co
   return result;
 }
 
+int RRT::extend_tree(const std::array<int,2>& target_pos, int fallback_parent) {
+  // Find nearest node from the random point
+  int nearest_node = nearest(target_pos);
+  if (nearest_node == -1) return -1;
+
+  // Steer 
+  std::array<int,2> target = target_pos;
+  auto new_pos_opt = steer(nodes[nearest_node], target);
+  if (!new_pos_opt) return -1; // obstacle
+  auto new_pos = *new_pos_opt;
+
+  std::vector<int> X_near = radiusnear(new_pos, static_cast<double>(rayon_rrt));
+  int best_node = find_min_cost(X_near, new_pos);
+  if (best_node == -1) best_node = (fallback_parent != -1) ? fallback_parent : nearest_node;
+
+  RRTNode new_node = {new_pos[0], new_pos[1], best_node};
+  nodes.push_back(new_node);
+  int ind_new_node = int(nodes.size()) - 1;
+  kd_tree.insert(conv_double(new_pos), ind_new_node);
+
+  rewire(X_near, ind_new_node);
+  return ind_new_node;
+}
+
+void RRT::smoothing(int goal_index_node, int iterations) {
+
+  std::cout<<"Smoothing..."<<std::endl;
+
+  if (goal_index_node < 0 || goal_index_node >= (int)nodes.size()) return;
+
+  for (int k = 0; k < iterations; ++k) {
+    std::array<int,2> q_rand2 = map.randomPosition();
+
+    int new_idx = extend_tree(q_rand2, -1);
+    if (new_idx == -1) continue;
+
+    auto X_goal = radiusnear(q_final, static_cast<double>(rayon_rrt));
+    rewire(X_goal, goal_index_node);
+  }
+}
+
 
 std::vector<int> RRT::find_near(std::array<int,2> pos){
   
@@ -323,91 +364,57 @@ std::vector<std::array<int,2>> RRT::find_path(int iterations_max){
 
   for(int i = 0;  i < iterations_max; i++){
 
+    //random pos
     std::array<int,2> q_rand = map.randomPosition();
 
-    //int nearest_node = find_nearest(q_rand);
-    int nearest_node = nearest(q_rand);
-    if(nearest_node == -1){ continue;}
+    // Extend (ie Steer/Rewire/Insert)
+    int ind_new_node = extend_tree(q_rand, -1);
+    if (ind_new_node == -1) continue;
 
-    auto new_pos_opt = steer(nodes[nearest_node], q_rand);
-    if(!new_pos_opt) continue; //obstacle
-    auto new_pos = *new_pos_opt;
+    // Check if goal reached
+    std::array<int,2> new_pos = {nodes[ind_new_node].x, nodes[ind_new_node].y};
+    if (near_end(new_pos) && map.collisionFree(nodes[ind_new_node], q_final)){
 
-    std::vector<int> X_near = radiusnear(new_pos, static_cast<double>(rayon_rrt));
-    int best_node = find_min_cost(X_near, new_pos);
-    if (best_node == -1) best_node = nearest_node; //si X_near vide
+        // Extend (ie Steer/Rewire/Insert)
+        int ind_final_node = extend_tree(q_final, ind_new_node);
+        if (ind_final_node == -1) continue;
 
-    RRTNode new_node = {new_pos[0], new_pos[1], best_node};
-
-    nodes.push_back(new_node);
-    int ind_new_node = int(nodes.size()) - 1;
-    kd_tree.insert(conv_double(new_pos), ind_new_node);
-  
-    rewire(X_near, ind_new_node);
-
-    if (near_end(new_pos) && map.collisionFree(new_node, q_final)){
-
-        //std::vector<int> X_near_final = find_near(q_final);
-        std::vector<int> X_near_final = radiusnear(q_final, static_cast<double>(rayon_rrt));
-        int best_node_final = find_min_cost(X_near_final, q_final);
-        if (best_node_final == -1) best_node_final = nearest_node; //si X_near vide
-
-        RRTNode final_node = {q_final[0], q_final[1], best_node_final};
-
-        nodes.push_back(final_node);
-        int ind_final_node = int(nodes.size()) - 1;
-        kd_tree.insert(conv_double(q_final), ind_final_node);
-        rewire(X_near_final, ind_final_node);
-
-        // ---- smoothing / optimization: continue 1000 iters ----
+        // smoothing / optimization
         const int smooth_iters = 5000;
-        std::cout<<"Path found, smoothing..."<<std::endl;
+        std::cout<<"Goal Reached"<<std::endl;
 
-        for (int k = 0; k < smooth_iters; ++k) {
-            std::array<int,2> q_rand2 = map.randomPosition();
-
-            int nearest2 = nearest(q_rand2);
-            if (nearest2 == -1) continue;
-
-            auto new_pos2_opt = steer(nodes[nearest2], q_rand2);
-            if (!new_pos2_opt) continue;
-            auto new_pos2 = *new_pos2_opt;
-
-            auto X_near2 = radiusnear(new_pos2, static_cast<double>(rayon_rrt));
-            int best2 = find_min_cost(X_near2, new_pos2);
-            if (best2 == -1) best2 = nearest2;
-
-            RRTNode n2 = {new_pos2[0], new_pos2[1], best2};
-            nodes.push_back(n2);
-            int ind2 = (int)nodes.size() - 1;
-            kd_tree.insert(conv_double(new_pos2), ind2);
-
-            rewire(X_near2, ind2);
-
-            //rewire le goal pour profiter des nouveaux noeuds
-            auto X_goal = radiusnear(q_final, static_cast<double>(rayon_rrt));
-            rewire(X_goal, ind_final_node);
-        }
+        smoothing(ind_final_node, smooth_iters);
         
+        // Return Path
         final_path = extract_path(ind_final_node);
         return final_path;
     }
   }
 
-  //recherche du noeud le plus proche
+  // ----GOAL NOT REACHED-----
+  std::cout << "Goal NOT Reached.\n";
+
+  // Find nearest node
   int nn_reached = nearest(q_final);
+
+  // Calcul of distance
   double dx = nodes[nn_reached].x - q_final[0];
   double dy = nodes[nn_reached].y - q_final[1];
   double dist = std::sqrt(dx*dx + dy*dy);
-  bool obstacle = map.collisionFree(nodes[nn_reached], q_final);
-  std::cout << "Goal non atteint.\n";
   std::cout << "Nearest node distance = " << dist << " (" << dist / step_max << " x step_max)\n";
+
+  // Check direct collision 
+  bool obstacle = map.collisionFree(nodes[nn_reached], q_final);
   if(obstacle){
-    std::cout << "Q_final NON-atteignable en ligne droite (obstacle).\n";
+    std::cout << "Q_final NON-reachable in straight line. (obstacle).\n";
   }else{
-    std::cout << "Q_final atteignable en ligne droite.\n";
+    std::cout << "Q_final reachable in straight line.\n";
   }
-  std::cout << "Augmentation des itérations nécessaire"<<std::endl;
+
+  std::cout << "More iterations probably needed"<<std::endl;
+
+  // return current path
+  std::cout << "Returning path as it is"<<std::endl;
   final_path = extract_path(nn_reached);
   return final_path;
 }
