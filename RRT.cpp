@@ -24,6 +24,30 @@ void RRT::get_rayon_rrt(){
   return;
 }
 
+int RRT::nearest(const std::array<int,2>& pos) const {
+  if (kd_tree.empty()) return -1;
+
+  const int* nearest_ptr = kd_tree.nearest(conv_double(pos));
+  if (!nearest_ptr) return -1;
+
+  return *nearest_ptr;
+}
+
+std::vector<int> RRT::radiusnear(const std::array<int,2>& pos, double radius) const {
+  std::vector<int> result;
+  if (kd_tree.empty()) return result;
+  if (radius <= 0.0) return result;
+
+  std::vector<const int*> found = kd_tree.radiusSearch(conv_double(pos), radius);
+  result.reserve(found.size());
+  for (const int* idx_ptr : found) {
+    if (!idx_ptr) continue;
+    result.push_back(*idx_ptr);
+  }
+
+  return result;
+}
+
 
 std::vector<int> RRT::find_near(std::array<int,2> pos){
   
@@ -302,14 +326,14 @@ std::vector<std::array<int,2>> RRT::find_path(int iterations_max){
     std::array<int,2> q_rand = map.randomPosition();
 
     //int nearest_node = find_nearest(q_rand);
-    int nearest_node = kd_tree.findNearest(q_rand);
+    int nearest_node = nearest(q_rand);
     if(nearest_node == -1){ continue;}
 
     auto new_pos_opt = steer(nodes[nearest_node], q_rand);
     if(!new_pos_opt) continue; //obstacle
     auto new_pos = *new_pos_opt;
 
-    std::vector<int> X_near = kd_tree.findNear(new_pos, rayon_rrt*rayon_rrt);
+    std::vector<int> X_near = radiusnear(new_pos, static_cast<double>(rayon_rrt));
     int best_node = find_min_cost(X_near, new_pos);
     if (best_node == -1) best_node = nearest_node; //si X_near vide
 
@@ -317,14 +341,14 @@ std::vector<std::array<int,2>> RRT::find_path(int iterations_max){
 
     nodes.push_back(new_node);
     int ind_new_node = int(nodes.size()) - 1;
-    kd_tree.insert(new_pos, ind_new_node);
+    kd_tree.insert(conv_double(new_pos), ind_new_node);
   
     rewire(X_near, ind_new_node);
 
     if (near_end(new_pos) && map.collisionFree(new_node, q_final)){
 
         //std::vector<int> X_near_final = find_near(q_final);
-        std::vector<int> X_near_final = kd_tree.findNear(q_final, rayon_rrt*rayon_rrt);
+        std::vector<int> X_near_final = radiusnear(q_final, static_cast<double>(rayon_rrt));
         int best_node_final = find_min_cost(X_near_final, q_final);
         if (best_node_final == -1) best_node_final = nearest_node; //si X_near vide
 
@@ -332,7 +356,7 @@ std::vector<std::array<int,2>> RRT::find_path(int iterations_max){
 
         nodes.push_back(final_node);
         int ind_final_node = int(nodes.size()) - 1;
-        kd_tree.insert(q_final, ind_final_node);
+        kd_tree.insert(conv_double(q_final), ind_final_node);
         rewire(X_near_final, ind_final_node);
 
         // ---- smoothing / optimization: continue 1000 iters ----
@@ -342,26 +366,26 @@ std::vector<std::array<int,2>> RRT::find_path(int iterations_max){
         for (int k = 0; k < smooth_iters; ++k) {
             std::array<int,2> q_rand2 = map.randomPosition();
 
-            int nearest2 = kd_tree.findNearest(q_rand2);
+            int nearest2 = nearest(q_rand2);
             if (nearest2 == -1) continue;
 
             auto new_pos2_opt = steer(nodes[nearest2], q_rand2);
             if (!new_pos2_opt) continue;
             auto new_pos2 = *new_pos2_opt;
 
-            auto X_near2 = kd_tree.findNear(new_pos2, rayon_rrt*rayon_rrt);
+            auto X_near2 = radiusnear(new_pos2, static_cast<double>(rayon_rrt));
             int best2 = find_min_cost(X_near2, new_pos2);
             if (best2 == -1) best2 = nearest2;
 
             RRTNode n2 = {new_pos2[0], new_pos2[1], best2};
             nodes.push_back(n2);
             int ind2 = (int)nodes.size() - 1;
-            kd_tree.insert(new_pos2, ind2);
+            kd_tree.insert(conv_double(new_pos2), ind2);
 
             rewire(X_near2, ind2);
 
             //rewire le goal pour profiter des nouveaux noeuds
-            auto X_goal = kd_tree.findNear(q_final, rayon_rrt*rayon_rrt);
+            auto X_goal = radiusnear(q_final, static_cast<double>(rayon_rrt));
             rewire(X_goal, ind_final_node);
         }
         
@@ -371,7 +395,7 @@ std::vector<std::array<int,2>> RRT::find_path(int iterations_max){
   }
 
   //recherche du noeud le plus proche
-  int nn_reached = kd_tree.findNearest(q_final);
+  int nn_reached = nearest(q_final);
   double dx = nodes[nn_reached].x - q_final[0];
   double dy = nodes[nn_reached].y - q_final[1];
   double dist = std::sqrt(dx*dx + dy*dy);
@@ -397,7 +421,7 @@ void RRT::Benchmark(int Iterations){
     std::array<int,2> q_rand = map.randomPosition();
 
     //int nearest_node = find_nearest(q_rand);
-    int nearest_node = kd_tree.findNearest(q_rand);
+    int nearest_node = nearest(q_rand);
     if(nearest_node == -1){ continue;}
 
     auto new_pos_opt = steer(nodes[nearest_node], q_rand);
@@ -405,14 +429,14 @@ void RRT::Benchmark(int Iterations){
     auto new_pos = *new_pos_opt;
 
     //std::vector<int> X_near = find_near(new_pos);
-    std::vector<int> X_near = kd_tree.findNear(new_pos, rayon_rrt*rayon_rrt);
+    std::vector<int> X_near = radiusnear(new_pos, static_cast<double>(rayon_rrt));
     int best_node = find_min_cost(X_near, new_pos);
 
     RRTNode new_node = {new_pos[0], new_pos[1], best_node};
 
     nodes.push_back(new_node);
     int ind_new_node = int(nodes.size()) - 1;
-    kd_tree.insert(new_pos, ind_new_node);
+    kd_tree.insert(conv_double(new_pos), ind_new_node);
   
     rewire(X_near, ind_new_node);
   }

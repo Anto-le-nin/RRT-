@@ -11,7 +11,7 @@
 #include <array>
 #include <optional>
 
-#include "KDTree.hpp"
+#include "kdtree/kdtree.hpp"
 
 #define STEP_MAX 10
 
@@ -51,19 +51,25 @@ class RRT {
         int iterations_max;
         int rayon_rrt;
 
-        KDTree<2> kd_tree;
+        kdtree::KDTree<2, double, int> kd_tree;
 
         RRT(std::array<int,2> q_initial, std::array<int,2> q_final, 
             const std::vector<std::vector<int>>& m, int step_max, int iterations_max) : 
             q_initial(q_initial), q_final(q_final), map(m), 
             step_max(step_max), iterations_max(iterations_max), kd_tree() {
             nodes.push_back({q_initial[0], q_initial[1], -1}); // -1 pour la racine
-            kd_tree.insert(q_initial, 0);
+            kd_tree.insert(conv_double(q_initial), 0);
             get_rayon_rrt();
         }
 
-        int find_nearest(std::array<int,2> pos);
-        std::vector<int> find_near(std::array<int,2> pos);
+        // helper to convert in double for the KDtree
+        static std::array<double,2> conv_double(const std::array<int,2>& p) {
+            return {static_cast<double>(p[0]), static_cast<double>(p[1])};
+        }
+
+        int nearest(const std::array<int,2>& pos) const;
+        std::vector<int> radiusnear(const std::array<int,2>& pos, double radius) const;
+
         int find_min_cost(std::vector<int> X_near, std::array<int,2> pos);
         std::optional<std::array<int,2>> steer(RRTNode& node, std::array<int,2>& pos_des);
         void rewire(const std::vector<int>& X_near, int ind_new_node);
@@ -71,9 +77,11 @@ class RRT {
         bool near_end(std::array<int,2>& current_pos);
         std::vector<std::array<int,2>> extract_path(int goal_index_node);
         void get_rayon_rrt();
+        void Benchmark(int Iterations);
 
         void Benchmark_noKD(int Iterations);
-        void Benchmark(int Iterations);
+        int find_nearest(std::array<int,2> pos);
+        std::vector<int> find_near(std::array<int,2> pos);
 
         std::vector<std::array<int,2>> find_path(int iterations_max);
 };
