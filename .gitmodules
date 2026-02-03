@@ -1,0 +1,3 @@
+[submodule "externals/kd_tree"]
+	path = externals/kd_tree
+	url = https://github.com/Anto-le-nin/KDTree.git
